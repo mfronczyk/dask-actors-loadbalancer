@@ -1,2 +1,2 @@
 # dask-actors-loadbalancer
-A POC of load balancer with some affinity for Dask Actors.
+A POC of load balancer with some affinity using asyncio for Dask Actors.
