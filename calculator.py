@@ -34,14 +34,19 @@ if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s %(levelname)-8s CALCULATOR %(message)s',
                         stream=sys.stderr, level=logging.INFO)
     logging.info("Calculator started. Python version = %s", version())
-    while True:
-        logging.debug("Waiting for request...")
-        request = pickle.load(sys.stdin)
-        logging.info("Request received: %s", json.dumps(request.__dict__))
-        calculate()
-        response = PricingResponse(request, "OK")
-        logging.debug("Sending response...")
-        pickle.dump(response, sys.stdout, protocol=2)
-        sys.stdout.write(SEPARATOR)
-        sys.stdout.flush()
-        logging.info("Response sent.")
+    try:
+        while True:
+            logging.debug("Waiting for request...")
+            request = pickle.load(sys.stdin)
+            logging.info("Request received: %s", json.dumps(request.__dict__))
+            calculate()
+            response = PricingResponse(request, "OK")
+            logging.debug("Sending response...")
+            pickle.dump(response, sys.stdout, protocol=2)
+            sys.stdout.write(SEPARATOR)
+            sys.stdout.flush()
+            logging.info("Response sent.")
+    except EOFError:
+        logging.warning(
+            "The pipe to the supervisor raised EOFError. "
+            "Probably supervisor crashed or didn't stop the calculator before before being deleted. Exiting...")

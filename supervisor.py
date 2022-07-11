@@ -25,6 +25,10 @@ class Supervisor:
         self.num_calcs = 0
         self.cached_request_name = None
 
+    def __del__(self) -> None:
+        """ Stops the calculator process before the object gets deleted. """
+        self.stop()
+
     async def ensure_start(self) -> None:
         """ Start worker process. """
 

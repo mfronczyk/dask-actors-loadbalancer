@@ -3,16 +3,28 @@ Module for efficient load balancing of the risk requests among the available cal
 """
 
 
+from abc import abstractmethod
 import asyncio
 import logging
-from dask.distributed import Client
-from actors import PricingActor
+from typing import Any, Protocol
 from risk import RiskRequest, RiskResponse
+
+
+class ClusterClient(Protocol):
+    @abstractmethod
+    async def create_actor(self) -> Any:
+        """ Creates an actor and returns some handle to it that can be later passed to submit(). """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def submit_request(self, request: RiskRequest, actor: Any) -> RiskResponse:
+        """ Submits risk request to the provided actor previously created using create_actor(). """
+        raise NotImplementedError
 
 
 class ActorsList:
     """ Holds the list of actors currently waiting for new tasks. """
-    actors: list[PricingActor]
+    actors: list[Any]
     condition: asyncio.Condition
 
     def __init__(self, actors=None) -> None:
@@ -22,13 +34,13 @@ class ActorsList:
             self.actors = []
         self.condition = asyncio.Condition()
 
-    async def append(self, actor: PricingActor) -> None:
+    async def append(self, actor: Any) -> None:
         """ Adds actor to the end of the list and notifies any waiting consumers. """
         async with self.condition:
             self.actors.append(actor)
             self.condition.notify(1)
 
-    async def take(self) -> PricingActor:
+    async def take(self) -> Any:
         """ Takes the first available actor. If empty, waits for an actor to be appended. """
         async with self.condition:
             if not self.actors:
@@ -49,12 +61,12 @@ class LoadBalancer:
     """
 
     actors: dict[str, ActorsList]
-    dask_client: Client
+    cluster_client: ClusterClient
     lock: asyncio.Lock
 
-    def __init__(self, client: Client) -> None:
+    def __init__(self, client: ClusterClient) -> None:
         self.actors = {}
-        self.dask_client = client
+        self.cluster_client = client
         self.lock = asyncio.Lock()
 
     def __str__(self) -> str:
@@ -77,13 +89,12 @@ class LoadBalancer:
 
         logging.info("Actors created.")
 
-    async def __create_new_actor(self) -> PricingActor:
+    async def __create_new_actor(self) -> Any:
         logging.debug("Creating actor in load balancer...")
-        risk_calculator = await self.dask_client.submit(PricingActor, actor=True)
-        await risk_calculator.start()
+        risk_calculator = await self.cluster_client.create_actor()
         return risk_calculator
 
-    async def __get_or_create_new_actor(self, request_name: str) -> PricingActor:
+    async def __get_or_create_new_actor(self, request_name: str) -> Any:
         await self.lock.acquire()
         if not request_name in self.actors:
             self.actors[request_name] = ActorsList()
@@ -101,9 +112,9 @@ class LoadBalancer:
     async def submit(self, request: RiskRequest) -> RiskResponse:
         """ Find a suitable actor and submit the request to it. """
         logging.debug(request)
-        actor: PricingActor = await self.__get_or_create_new_actor(request.batch_name)
+        actor: Any = await self.__get_or_create_new_actor(request.batch_name)
         try:
-            response: RiskResponse = await actor.calculate_risk(request)
+            response: RiskResponse = await self.cluster_client.submit_request(request, actor)
             logging.debug(response)
             return response
         finally:
